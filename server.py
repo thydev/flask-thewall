@@ -19,6 +19,9 @@ def index():
             'id': -1,
             'name': "undefined"
         }
+    elif session['loggedin']['id'] != -1:
+        return redirect('/wall')
+
     return render_template('index.html')
 
 @app.route('/create', methods=["POST"])
@@ -82,7 +85,7 @@ def create():
         print session['loggedin']
         flash("Registered sucessfully!", "sucess")
         # return render_template('result.html', fullname = fullname, location = location, language = language, comment = comment )
-        return redirect('/')
+        return redirect('/wall')
     else:
         return redirect('/')
 
@@ -115,9 +118,83 @@ def login():
                 'id': user[0]['id'],
                 'name': user[0]['first_name'] + ' ' + user[0]['last_name']
             }
+        return redirect('/wall')
     else:
         # invalid password!
         flash("Wrong Password!", "error_login")
     return redirect('/')
+
+@app.route('/wall')
+def wall():
+    # Display Messages
+    sql_q = """SELECT 
+                CONCAT(users.first_name, ' ', users.last_name) AS name,
+                messages.message,
+                messages.created_at,
+                date_format(messages.created_at, "%M %D %Y") as date_ordinal,
+                user_id,
+                messages.id as message_id
+            FROM
+                users
+                    JOIN
+                messages ON users.id = messages.user_id
+            ORDER BY messages.created_at DESC;"""
+    messages = "all messages"
+    messages = mysql.query_db(sql_q)
+
+    # Create comments list for each message
+    for message in messages:
+        query_comment = '''SELECT 
+                            comments.comment, comments.user_id, comments.created_at,
+                            date_format(comments.created_at, "%M %D %Y") as date_ordinal,
+                            CONCAT(users.first_name, ' ', users.last_name) AS poster
+                        FROM
+                            comments JOIN users ON comments.user_id = users.id 
+                        WHERE comments.message_id = {}
+                        ORDER BY created_at ASC;'''.format(message['message_id'])
+        comments = mysql.query_db(query_comment)
+        message['comments'] = comments
+
+    return render_template('wall.html', messages = messages)
+    
+
+@app.route('/post_message', methods=['POST'])
+def post_message():
+    message = request.form['message'].strip()
+    if len(message) == 0:
+        flash("Please input your message!", "error")
+    else:
+        query = "INSERT INTO messages (message, user_id, created_at, updated_at) " 
+        query += "VALUES (:message, :user_id, NOW(), NOW())"
+        data = { 
+            'message': message,
+            'user_id': session['loggedin']['id']
+            }
+        mysql.query_db(query, data)
+    return redirect('/wall')
+
+@app.route('/post_comment', methods=['POST'])
+def post_comment():
+    comment = request.form['comment'].strip()
+    if len(comment) == 0:
+        flash("Please input your comment!", "error")
+    else:
+        message_id = request.form['message_id']
+        query = "INSERT INTO comments (comment, user_id, message_id, created_at, updated_at) " 
+        query += "VALUES (:comment, :user_id, :message_id, NOW(), NOW())"
+        data = { 
+            'comment': comment,
+            'message_id': message_id,
+            'user_id': session['loggedin']['id']
+            }
+        mysql.query_db(query, data)
+    return redirect('/wall')
+
+# def ordinal(day):
+#     if 4 <= day <= 20 or 24 <= day <= 30:
+#         suffix = "th"
+#     else:
+#         suffix = ["st", "nd", "rd"][day % 10 - 1]
+#     return suffix
 
 app.run(debug = True)
